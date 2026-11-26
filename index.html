@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="color-scheme" content="dark"/>
+<!-- GitHub Pages 独立版：单文件页面直接部署即可；手势识别资源优先从公开 CDN (jsDelivr) 加载，包内 assets/mediapipe/ 本地文件兜底 -->
+<link rel="icon" href="data:,"/>
+<title>圣诞·星光许愿树</title>
+<script src="assets/three.min.js"></script>
+<script src="assets/mediapipe/hands.js"></script>
+<script src="assets/mediapipe/drawing_utils.js"></script>
+<style>
+:root{
+  --gold:#f2c268; --gold-dim:rgba(242,194,104,.35); --gold-line:rgba(242,194,104,.45);
+  --ivory:#fff6e6; --muted:#c9b18c;
+  --panel:rgba(26,15,5,.72); --green:#3dff8e;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#140b04;color:var(--ivory);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden}
+#scene{position:fixed;inset:0}
+canvas.webgl{width:100%;height:100%;display:block}
+.vignette{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse at 50% 42%,transparent 46%,rgba(8,4,1,.55) 100%)}
+
+/* 左上角标题 */
+.title-block{position:fixed;top:20px;left:22px;z-index:6;pointer-events:none}
+.title-block h1{margin:0;font-family:"Songti SC","STSong","SimSun",serif;font-size:clamp(21px,3.2vw,32px);font-weight:700;letter-spacing:.14em;color:var(--ivory);text-shadow:0 2px 18px rgba(0,0,0,.85),0 0 26px rgba(242,194,104,.25)}
+.title-block .en{margin-top:6px;font-size:clamp(10px,1.3vw,13px);letter-spacing:.42em;color:var(--gold);text-transform:uppercase;opacity:.92}
+.title-block .rule{margin-top:10px;width:64px;height:1px;background:linear-gradient(90deg,var(--gold),transparent)}
+
+/* 右上角手部跟踪 */
+.track-badge{position:fixed;top:20px;right:22px;z-index:6;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--gold-line);border-radius:999px;padding:8px 14px;font-size:13px;backdrop-filter:blur(10px);white-space:nowrap}
+.track-badge .dot{width:9px;height:9px;border-radius:50%;background:#8a7a5f;flex-shrink:0}
+.track-badge .dot.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 1.6s ease-in-out infinite}
+.track-badge .dot.err{background:#ff5470;box-shadow:0 0 10px #ff5470}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.track-badge b{color:var(--gold);font-variant-numeric:tabular-nums}
+
+/* 顶部中央模式提示 */
+.mode-hint{position:fixed;top:22px;left:50%;transform:translateX(-50%);z-index:6;text-align:center;pointer-events:none;width:max-content;max-width:92vw}
+.mode-hint .main{font-family:"Songti SC","STSong","SimSun",serif;font-size:clamp(19px,2.8vw,29px);font-weight:700;letter-spacing:.12em;color:var(--ivory);text-shadow:0 2px 16px rgba(0,0,0,.9),0 0 30px rgba(242,194,104,.35)}
+.mode-hint .sub{margin-top:6px;font-size:12.5px;color:var(--muted);letter-spacing:.06em;text-shadow:0 1px 8px rgba(0,0,0,.9)}
+
+/* 左下角粒子信息 */
+.stats{position:fixed;left:22px;bottom:52px;z-index:6;font-size:12px;letter-spacing:.28em;color:var(--gold);opacity:.9;pointer-events:none;text-shadow:0 1px 8px rgba(0,0,0,.9);font-variant-numeric:tabular-nums}
+
+/* 中央单张照片 */
+#photoStage{position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);z-index:4;display:none;flex-direction:column;align-items:center;gap:14px;perspective:1200px}
+#photoStage.show{display:flex}
+#photoCard{transform-origin:50% 50%;will-change:transform,opacity;line-height:0;padding:7px;background:linear-gradient(160deg,#2a1a08,#17100a);border:2px solid var(--gold);border-radius:6px;box-shadow:0 30px 80px rgba(0,0,0,.75),0 0 55px rgba(242,194,104,.35),0 0 130px rgba(242,160,60,.18)}
+#photoImg{display:block;max-width:min(74vw,560px);max-height:58vh;width:auto;height:auto;object-fit:contain;border-radius:3px;background:#000}
+#photoCap{font-size:14px;letter-spacing:.14em;color:var(--ivory);background:rgba(16,9,3,.78);border:1px solid var(--gold-line);padding:7px 16px;border-radius:999px;backdrop-filter:blur(8px);white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
+#photoCap b{color:var(--gold)}
+
+/* 爱心照片墙 */
+#heartWall{position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);z-index:4;display:none}
+#heartWall.show{display:block}
+#heartWall .hp{position:absolute;transform-origin:50% 50%;padding:4px;background:linear-gradient(160deg,#2a1a08,#17100a);border:1.5px solid var(--gold);border-radius:4px;box-shadow:0 16px 44px rgba(0,0,0,.7),0 0 26px rgba(242,194,104,.28);line-height:0}
+#heartWall .hp img{display:block;width:100%;height:100%;object-fit:cover;border-radius:2px}
+
+/* 右下角 GESTURE CAM */
+.cam-wrap{position:fixed;right:18px;bottom:52px;z-index:7;width:212px}
+.cam-tag{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.3em;color:var(--gold);margin-bottom:7px;text-shadow:0 1px 8px rgba(0,0,0,.9)}
+.cam-tag .rec{width:7px;height:7px;border-radius:50%;background:#8a7a5f}
+.cam-tag .rec.on{background:#ff4757;box-shadow:0 0 9px #ff4757;animation:pulse 1.2s infinite}
+.cam-box{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid var(--gold-line);box-shadow:0 18px 50px rgba(0,0,0,.65)}
+.cam-box video,.cam-box canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:14px;color:var(--muted);font-size:12px;line-height:1.7;background:radial-gradient(circle at 50% 40%,#2b1a08,#0d0602)}
+
+/* 底部中央控制 */
+.controls{position:fixed;left:50%;transform:translateX(-50%);bottom:50px;z-index:7;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(94vw,760px)}
+.btn-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+button{min-height:38px;padding:0 15px;border-radius:999px;border:1px solid var(--gold-line);background:rgba(30,18,6,.78);color:var(--ivory);font-weight:600;cursor:pointer;font-size:13.5px;backdrop-filter:blur(10px);letter-spacing:.04em}
+button:active{transform:scale(.97)}
+button.primary{background:linear-gradient(160deg,#a8742c,#7d5216);border-color:var(--gold);color:#fff8ea;box-shadow:0 6px 22px rgba(242,180,80,.3)}
+button.on{border-color:var(--gold);background:rgba(242,194,104,.22);color:var(--gold)}
+.hand-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--muted)}
+.hand-row .hand-btn{min-height:30px;padding:0 11px;font-size:12px;font-weight:500}
+.hand-row .hand-btn.active{background:rgba(242,194,104,.25);border-color:var(--gold);color:var(--gold)}
+#statusText{font-size:12px;color:var(--muted);text-align:center;line-height:1.55;max-width:92vw;text-shadow:0 1px 6px rgba(0,0,0,.9)}
+
+/* 底部操作栏 */
+.opbar{position:fixed;left:0;right:0;bottom:0;z-index:8;height:38px;display:flex;align-items:center;justify-content:center;background:rgba(12,6,2,.82);border-top:1px solid rgba(242,194,104,.22);backdrop-filter:blur(10px);font-size:12.5px;letter-spacing:.18em;color:#e8cf9f;white-space:nowrap;overflow:hidden;padding:0 10px}
+.opbar span{margin:0 .55em}
+.opbar i{font-style:normal;color:var(--gold);opacity:.6}
+
+@media(max-width:820px){
+  .title-block{top:12px;left:14px}
+  .track-badge{top:12px;right:14px;font-size:12px;padding:7px 11px}
+  .mode-hint{top:64px}
+  .stats{left:14px;bottom:118px;font-size:10.5px}
+  .cam-wrap{right:12px;bottom:112px;width:128px}
+  .controls{bottom:46px;gap:6px}
+  #statusText{display:none}
+  .opbar{font-size:10px;letter-spacing:.08em}
+  #photoImg{max-height:50vh;max-width:86vw}
+  #photoStage{top:44%}
+}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div class="vignette"></div>
+
+<div class="title-block">
+  <h1>圣诞·星光许愿树</h1>
+  <div class="en">Christmas Wish Tree</div>
+  <div class="rule"></div>
+</div>
+
+<div class="track-badge"><span class="dot" id="trackDot"></span><span>手部跟踪 · <b id="trackText">未开启</b></span></div>
+
+<div class="mode-hint">
+  <div class="main" id="modeHint">握拳 · 星光聚成树</div>
+  <div class="sub" id="modeSub">点下方「开启摄像头」，把操作手伸到镜头前试试</div>
+</div>
+
+<div class="stats">PARTICLES 2400 · <span id="fpsNum">60</span> FPS</div>
+
+<div id="photoStage" aria-hidden="true">
+  <div id="photoCard"><img id="photoImg" alt="一张正在发光的回忆照片"></div>
+  <div id="photoCap"></div>
+</div>
+
+<div id="heartWall" aria-hidden="true"></div>
+
+<div class="cam-wrap">
+  <div class="cam-tag"><span class="rec" id="recDot"></span>GESTURE CAM</div>
+  <div class="cam-box">
+    <div class="cam-empty" id="camEmpty">点「开启摄像头」<br>这里会显示你的手</div>
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="btn-row">
+    <button class="primary" id="startCam">📷 开启摄像头 · 手势互动</button>
+    <button id="btnUpload">🖼️ 上传照片（可多选）</button>
+    <button id="btnTree">✊ 聚成树</button>
+    <button id="btnPhotoMode">✨ 一张回忆</button>
+    <button id="btnHeart">💛 爱心墙</button>
+  </div>
+  <div class="hand-row">
+    <span>只认操作手：</span>
+    <button type="button" class="hand-btn active" data-hand="Right">右手操作 · 左手拿手机</button>
+    <button type="button" class="hand-btn" data-hand="Left">左手操作 · 右手拿手机</button>
+    <button type="button" class="hand-btn" data-hand="Auto">自动锁定</button>
+  </div>
+  <div id="statusText">手势识别会在页面打开后自动预热，点开启摄像头时不用等。照片只在本机处理，不会上传。</div>
+  <input type="file" id="photoInput" accept="image/*" multiple hidden>
+</div>
+
+<div class="opbar"><span>握拳换成树</span><i>·</i><span>1-4 指换一张回忆</span><i>·</i><span>五指爱心照片墙</span><i>·</i><span>Space 换照片</span><i>·</i><span>F1/F11 全屏</span><i>·</i><span>Esc 退出</span></div>
+
+<script>
+// ================= Three.js 暖金粒子圣诞树 =================
+var container=document.getElementById('scene');
+var scene=new THREE.Scene();
+scene.background=new THREE.Color(0x140b04);
+scene.fog=new THREE.FogExp2(0x140b04,0.016);
+var camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,100);
+camera.position.set(0,0.9,11);
+var renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.domElement.className='webgl';
+container.appendChild(renderer.domElement);
+
+function glowTexture(){
+  var c=document.createElement('canvas'); c.width=c.height=64;
+  var x=c.getContext('2d');
+  var g=x.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,'rgba(255,255,255,1)');
+  g.addColorStop(.3,'rgba(255,255,255,.8)');
+  g.addColorStop(.65,'rgba(255,255,255,.22)');
+  g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+function sparkTexture(){
+  // 四角星形光点
+  var c=document.createElement('canvas'); c.width=c.height=128;
+  var x=c.getContext('2d'); x.translate(64,64);
+  var g=x.createRadialGradient(0,0,0,0,0,60);
+  g.addColorStop(0,'rgba(255,255,255,.9)');
+  g.addColorStop(.35,'rgba(255,244,214,.45)');
+  g.addColorStop(1,'rgba(255,244,214,0)');
+  x.fillStyle=g;
+  x.beginPath(); x.arc(0,0,60,0,Math.PI*2); x.fill();
+  x.fillStyle='rgba(255,255,255,1)';
+  x.beginPath();
+  x.moveTo(0,-62);
+  x.quadraticCurveTo(5,-5,62,0);
+  x.quadraticCurveTo(5,5,0,62);
+  x.quadraticCurveTo(-5,5,-62,0);
+  x.quadraticCurveTo(-5,-5,0,-62);
+  x.fill();
+  return new THREE.CanvasTexture(c);
+}
+function topStarTexture(){
+  // 顶部白色五角星 + 光晕
+  var c=document.createElement('canvas'); c.width=c.height=256;
+  var x=c.getContext('2d'); x.translate(128,128);
+  var g=x.createRadialGradient(0,0,0,0,0,126);
+  g.addColorStop(0,'rgba(255,250,230,.85)');
+  g.addColorStop(.4,'rgba(255,226,160,.32)');
+  g.addColorStop(1,'rgba(255,226,160,0)');
+  x.fillStyle=g; x.beginPath(); x.arc(0,0,126,0,Math.PI*2); x.fill();
+  x.beginPath();
+  var R=74,r=30;
+  for(var i=0;i<10;i++){
+    var ang=-Math.PI/2+i*Math.PI/5, rad=(i%2===0)?R:r;
+    var px=Math.cos(ang)*rad, py=Math.sin(ang)*rad;
+    if(i===0) x.moveTo(px,py); else x.lineTo(px,py);
+  }
+  x.closePath();
+  x.shadowColor='rgba(255,240,200,.95)'; x.shadowBlur=26;
+  x.fillStyle='#fffdf4'; x.fill();
+  x.shadowBlur=0; x.fillStyle='#ffffff'; x.fill();
+  return new THREE.CanvasTexture(c);
+}
+var texGlow=glowTexture(), texSpark=sparkTexture();
+
+function makePoints(count,size,opacity,tex){
+  var geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(count*3),3));
+  geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(count*3),3));
+  var mat=new THREE.PointsMaterial({size:size,map:tex||texGlow,vertexColors:true,transparent:true,opacity:opacity,depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true,fog:false});
+  return new THREE.Points(geo,mat);
+}
+
+// ---- 主树：2400 个金 / 白 / 暖橙光点，圆锥形 ----
+var N=2400;
+var treePos=new Float32Array(N*3), scatterPos=new Float32Array(N*3),
+    baseCol=new Float32Array(N*3), curCol=new Float32Array(N*3),
+    phase=new Float32Array(N), twSpd=new Float32Array(N);
+var PALETTE=[
+  [1.00,0.78,0.34],[1.00,0.78,0.34],[1.00,0.72,0.28],   // 金
+  [1.00,0.86,0.52],[1.00,0.86,0.52],                     // 浅金
+  [1.00,0.96,0.88],[1.00,0.96,0.88],                     // 暖白
+  [1.00,0.58,0.22],[1.00,0.66,0.30]                      // 暖橙
+];
+function conePoint(t){
+  var y=-2.65+t*5.55;
+  var maxR=(1-t)*2.8+0.1;
+  var ang=t*44+Math.random()*Math.PI*2;
+  var r=maxR*(0.68+Math.random()*0.36);
+  if(Math.random()<0.16) r*=Math.random()*0.65; // 少量点填进体积里
+  return [Math.cos(ang)*r, y+(Math.random()-.5)*0.16, Math.sin(ang)*r];
+}
+for(var i=0;i<N;i++){
+  var t=Math.pow(Math.random(),0.78);
+  var p=conePoint(t);
+  treePos[i*3]=p[0]; treePos[i*3+1]=p[1]; treePos[i*3+2]=p[2];
+  var sr=3.4+Math.random()*3.4, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
+  scatterPos[i*3]=Math.sin(ph)*Math.cos(th)*sr;
+  scatterPos[i*3+1]=Math.cos(ph)*sr*0.72+0.2;
+  scatterPos[i*3+2]=Math.sin(ph)*Math.sin(th)*sr;
+  var c=PALETTE[(Math.random()*PALETTE.length)|0];
+  baseCol[i*3]=c[0]; baseCol[i*3+1]=c[1]; baseCol[i*3+2]=c[2];
+  phase[i]=Math.random()*Math.PI*2;
+  twSpd[i]=1.2+Math.random()*2.6;
+}
+curCol.set(baseCol);
+var treeGroup=new THREE.Group(); scene.add(treeGroup);
+var tree=makePoints(N,0.135,0.95);
+tree.geometry.attributes.position.array.set(treePos);
+tree.geometry.attributes.color.array.set(baseCol);
+treeGroup.add(tree);
+
+// ---- 较大的金色光斑 ----
+var B=90, blobPos=new Float32Array(B*3);
+var blobs=makePoints(B,0.62,0.30);
+for(var b=0;b<B;b++){
+  var bp=conePoint(Math.pow(Math.random(),0.8));
+  blobPos[b*3]=bp[0]; blobPos[b*3+1]=bp[1]; blobPos[b*3+2]=bp[2];
+  blobs.geometry.attributes.position.array[b*3]=bp[0];
+  blobs.geometry.attributes.position.array[b*3+1]=bp[1];
+  blobs.geometry.attributes.position.array[b*3+2]=bp[2];
+  blobs.geometry.attributes.color.array[b*3]=1;
+  blobs.geometry.attributes.color.array[b*3+1]=0.72;
+  blobs.geometry.attributes.color.array[b*3+2]=0.3;
+}
+treeGroup.add(blobs);
+
+// ---- 四角星形光点 ----
+var K=130, sparkPos=new Float32Array(K*3);
+var sparks=makePoints(K,0.4,0.9,texSpark);
+for(var k=0;k<K;k++){
+  var kp=conePoint(Math.random());
+  sparkPos[k*3]=kp[0]; sparkPos[k*3+1]=kp[1]; sparkPos[k*3+2]=kp[2];
+  sparks.geometry.attributes.position.array[k*3]=kp[0];
+  sparks.geometry.attributes.position.array[k*3+1]=kp[1];
+  sparks.geometry.attributes.position.array[k*3+2]=kp[2];
+  var kc=Math.random()<0.5?[1,0.95,0.8]:[1,0.82,0.42];
+  sparks.geometry.attributes.color.array[k*3]=kc[0];
+  sparks.geometry.attributes.color.array[k*3+1]=kc[1];
+  sparks.geometry.attributes.color.array[k*3+2]=kc[2];
+}
+treeGroup.add(sparks);
+
+// ---- 树底的星光地面 ----
+var G=260, ground=makePoints(G,0.1,0.55);
+for(var g2=0;g2<G;g2++){
+  var gr=Math.sqrt(Math.random())*3.6, ga=Math.random()*Math.PI*2;
+  ground.geometry.attributes.position.array[g2*3]=Math.cos(ga)*gr;
+  ground.geometry.attributes.position.array[g2*3+1]=-2.78+Math.random()*0.05;
+  ground.geometry.attributes.position.array[g2*3+2]=Math.sin(ga)*gr;
+  ground.geometry.attributes.color.array[g2*3]=1;
+  ground.geometry.attributes.color.array[g2*3+1]=0.78;
+  ground.geometry.attributes.color.array[g2*3+2]=0.38;
+}
+treeGroup.add(ground);
+
+// ---- 顶部白色五角星（带光晕，会闪烁）----
+var topStar=new THREE.Sprite(new THREE.SpriteMaterial({map:topStarTexture(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+topStar.position.set(0,3.3,0);
+topStar.scale.set(1.5,1.5,1);
+treeGroup.add(topStar);
+
+// ---- 背景暖色虚化光斑 ----
+var bokehTexC=document.createElement('canvas'); bokehTexC.width=bokehTexC.height=128;
+(function(){
+  var x=bokehTexC.getContext('2d');
+  var g=x.createRadialGradient(64,64,4,64,64,64);
+  g.addColorStop(0,'rgba(255,255,255,.75)');
+  g.addColorStop(.55,'rgba(255,255,255,.28)');
+  g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,128,128);
+})();
+var bokehTexture=new THREE.CanvasTexture(bokehTexC);
+var bokehs=[];
+var bokehCols=[0xffb85c,0xff9a3d,0xffd9a0,0xff8a50,0xffe9c4];
+for(var bi=0;bi<14;bi++){
+  var bm=new THREE.SpriteMaterial({map:bokehTexture,color:bokehCols[bi%bokehCols.length],transparent:true,opacity:0.05+Math.random()*0.1,depthWrite:false,fog:false});
+  var bs=new THREE.Sprite(bm);
+  bs.position.set((Math.random()-.5)*19, (Math.random()-.5)*9+0.5, -7-Math.random()*6);
+  var bsc=3+Math.random()*5.5;
+  bs.scale.set(bsc,bsc,1);
+  bs.userData={x0:bs.position.x,y0:bs.position.y,ph:Math.random()*Math.PI*2,sp:0.1+Math.random()*0.16};
+  scene.add(bs); bokehs.push(bs);
+}
+
+// ---- 漂浮的金色尘粒 ----
+var D=340, dust=makePoints(D,0.075,0.65), dustSpd=new Float32Array(D);
+for(var d=0;d<D;d++){
+  dust.geometry.attributes.position.array[d*3]=(Math.random()-.5)*17;
+  dust.geometry.attributes.position.array[d*3+1]=Math.random()*10-3.4;
+  dust.geometry.attributes.position.array[d*3+2]=(Math.random()-.5)*9-1;
+  dust.geometry.attributes.color.array[d*3]=1;
+  dust.geometry.attributes.color.array[d*3+1]=0.8;
+  dust.geometry.attributes.color.array[d*3+2]=0.42;
+  dustSpd[d]=0.0016+Math.random()*0.004;
+}
+scene.add(dust);
+
+// ================= 模式与动画 =================
+var mode='tree'; // tree | photo | heart
+var explode=0, burst=0, handRotVel=0, scaleTarget=1, clock=0;
+function modeExplodeTarget(){ return mode==='tree'?0 : mode==='photo'?0.85 : 1; }
+
+var dragging=false,lastX=0;
+renderer.domElement.addEventListener('pointerdown',function(e){dragging=true;lastX=e.clientX});
+addEventListener('pointerup',function(){dragging=false});
+addEventListener('pointermove',function(e){ if(dragging){ handRotVel=(e.clientX-lastX)*0.0007; lastX=e.clientX; } });
+addEventListener('wheel',function(e){ scaleTarget=Math.max(.65,Math.min(1.5,scaleTarget-e.deltaY*0.001)); },{passive:true});
+addEventListener('resize',function(){
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+  if(mode==='heart') buildHeart();
+});
+
+// FPS 计数
+var fpsFrames=0, fpsLast=performance.now();
+setInterval(function(){
+  var now=performance.now();
+  var fps=Math.round(fpsFrames*1000/Math.max(1,now-fpsLast));
+  fpsFrames=0; fpsLast=now;
+  document.getElementById('fpsNum').textContent=String(Math.min(99,Math.max(1,fps)));
+},600);
+
+function animate(){
+  requestAnimationFrame(animate);
+  clock+=0.016; fpsFrames++;
+  if(burst>0) burst=Math.max(0,burst-0.011);
+  var target=(burst>0)?1:modeExplodeTarget();
+  explode+=(target-explode)*0.05;
+  var ex=Math.max(0,Math.min(1,explode));
+  // 粒子位置：树形 <-> 散开（带旋转星尘感）
+  var pos=tree.geometry.attributes.position.array;
+  var col=tree.geometry.attributes.color.array;
+  for(var i=0;i<N;i++){
+    var swirl=ex*clock*0.22+phase[i]*ex;
+    var sx=scatterPos[i*3]*Math.cos(swirl)-scatterPos[i*3+2]*Math.sin(swirl);
+    var sz=scatterPos[i*3]*Math.sin(swirl)+scatterPos[i*3+2]*Math.cos(swirl);
+    var bob=Math.sin(clock*1.5+phase[i])*0.045*(1-ex);
+    pos[i*3]=treePos[i*3]+(sx-treePos[i*3])*ex;
+    pos[i*3+1]=treePos[i*3+1]+(scatterPos[i*3+1]-treePos[i*3+1])*ex+bob;
+    pos[i*3+2]=treePos[i*3+2]+(sz-treePos[i*3+2])*ex;
+    var tw=0.7+0.42*Math.sin(clock*twSpd[i]+phase[i]);
+    col[i*3]=baseCol[i*3]*tw; col[i*3+1]=baseCol[i*3+1]*tw; col[i*3+2]=baseCol[i*3+2]*tw;
+  }
+  tree.geometry.attributes.position.needsUpdate=true;
+  tree.geometry.attributes.color.needsUpdate=true;
+  var treeOpT=mode==='tree'?0.95:0.5;
+  tree.material.opacity+=(treeOpT-tree.material.opacity)*0.06;
+  // 光斑与星点跟着散开程度淡出
+  blobs.material.opacity=0.30*(1-ex*0.75);
+  sparks.material.opacity=(0.65+0.35*Math.sin(clock*2.4))*(1-ex*0.35);
+  var bp=blobs.geometry.attributes.position.array;
+  for(var b2=0;b2<B;b2++){
+    bp[b2*3]=blobPos[b2*3]*(1+ex*1.6);
+    bp[b2*3+1]=blobPos[b2*3+1]+ex*0.6;
+    bp[b2*3+2]=blobPos[b2*3+2]*(1+ex*1.6);
+  }
+  blobs.geometry.attributes.position.needsUpdate=true;
+  var kp2=sparks.geometry.attributes.position.array;
+  for(var k2=0;k2<K;k2++){
+    kp2[k2*3]=sparkPos[k2*3]*(1+ex*1.9);
+    kp2[k2*3+1]=sparkPos[k2*3+1]+ex*0.8;
+    kp2[k2*3+2]=sparkPos[k2*3+2]*(1+ex*1.9);
+  }
+  sparks.geometry.attributes.position.needsUpdate=true;
+  // 顶部星星：树形时闪烁发光，散开时淡出
+  var blink=0.82+0.18*Math.sin(clock*2.8)+0.07*Math.sin(clock*7.3);
+  topStar.material.opacity+=(((mode==='tree')?blink:0)-topStar.material.opacity)*0.08;
+  var sts=(1.42+0.13*Math.sin(clock*2.8))*(1-ex*0.4);
+  topStar.scale.set(sts,sts,1);
+  topStar.visible=topStar.material.opacity>0.02;
+  // 背景光斑缓慢漂移
+  for(var bi2=0;bi2<bokehs.length;bi2++){
+    var bo=bokehs[bi2];
+    bo.position.x=bo.userData.x0+Math.sin(clock*bo.userData.sp+bo.userData.ph)*0.7;
+    bo.position.y=bo.userData.y0+Math.cos(clock*bo.userData.sp*0.8+bo.userData.ph)*0.5;
+  }
+  // 金色尘粒上浮
+  var dp=dust.geometry.attributes.position.array;
+  for(var d2=0;d2<D;d2++){
+    dp[d2*3+1]+=dustSpd[d2];
+    dp[d2*3]+=Math.sin(clock*0.7+d2)*0.0016;
+    if(dp[d2*3+1]>6.8) dp[d2*3+1]=-3.4;
+  }
+  dust.geometry.attributes.position.needsUpdate=true;
+  // 旋转与缩放
+  treeGroup.rotation.y+=0.0032+handRotVel;
+  handRotVel*=0.93;
+  var sc=treeGroup.scale.x+(scaleTarget-treeGroup.scale.x)*0.08;
+  treeGroup.scale.set(sc,sc,sc);
+  renderer.render(scene,camera);
+}
+animate();
+
+// ================= 照片：单张回忆 & 爱心墙 =================
+var photos=[], photoIndex=0;
+var statusEl=document.getElementById('statusText');
+function setStatus(t){ if(statusEl) statusEl.textContent=t; }
+function setHint(main,sub){
+  document.getElementById('modeHint').textContent=main;
+  if(sub!==undefined) document.getElementById('modeSub').textContent=sub;
+}
+function seededRand(seed){
+  var x=Math.sin(seed*127.1+311.7)*43758.5453;
+  return x-Math.floor(x);
+}
+
+var photoStage=document.getElementById('photoStage'),
+    photoCard=document.getElementById('photoCard'),
+    photoImg=document.getElementById('photoImg'),
+    photoCap=document.getElementById('photoCap'),
+    heartWall=document.getElementById('heartWall');
+
+function updatePhotoCap(){
+  photoCap.innerHTML='她的第 <b>'+(photoIndex+1)+'</b> 张照片 · 共 '+photos.length+' 张珍藏';
+}
+function markModeButtons(){
+  document.getElementById('btnTree').classList.toggle('on',mode==='tree');
+  document.getElementById('btnPhotoMode').classList.toggle('on',mode==='photo');
+  document.getElementById('btnHeart').classList.toggle('on',mode==='heart');
+}
+function hidePhotoStage(){
+  photoStage.classList.remove('show');
+  photoStage.setAttribute('aria-hidden','true');
+}
+function hideHeart(){
+  heartWall.classList.remove('show');
+  heartWall.setAttribute('aria-hidden','true');
+  heartWall.innerHTML='';
+}
+
+function enterTree(){
+  mode='tree'; burst=Math.max(burst,0.35);
+  hidePhotoStage(); hideHeart(); markModeButtons();
+  setHint('握拳 · 星光聚成树', photos.length?('已珍藏 '+photos.length+' 张照片 · 伸出 1-4 指看一张 · 五指看爱心墙'):'粒子正聚成一棵树 · 先点「上传照片」放入她的照片，手势就能唤出回忆');
+}
+
+function revealPhoto(entering){
+  var p=photos[photoIndex]; if(!p) return;
+  photoImg.src=p.url;
+  updatePhotoCap();
+  photoStage.classList.add('show');
+  photoStage.setAttribute('aria-hidden','false');
+  if(photoCard.animate){
+    if(entering){
+      photoCard.animate([
+        {transform:'translateY(16px) scale(.14) rotateY(84deg)',opacity:0,filter:'brightness(1.9)'},
+        {transform:'translateY(2px) scale(.6) rotateY(36deg)',opacity:1,filter:'brightness(1.3)',offset:.55},
+        {transform:'translateY(0) scale(1.04) rotateY(-6deg)',opacity:1,filter:'brightness(1)',offset:.84},
+        {transform:'translateY(0) scale(1) rotateY(0deg)',opacity:1,filter:'brightness(1)'}
+      ],{duration:1250,easing:'cubic-bezier(.2,.85,.25,1)',fill:'forwards'});
+    } else {
+      photoCard.animate([
+        {transform:'rotateY(0deg) scale(1)',opacity:1,filter:'blur(0px) brightness(1)'},
+        {transform:'rotateY(40deg) scale(.93)',opacity:.5,filter:'blur(2px) brightness(1.08)',offset:.4},
+        {transform:'rotateY(-38deg) scale(.94)',opacity:.55,filter:'blur(2px) brightness(1.08)',offset:.62},
+        {transform:'rotateY(0deg) scale(1)',opacity:1,filter:'blur(0px) brightness(1)'}
+      ],{duration:950,easing:'cubic-bezier(.3,.7,.3,1)',fill:'forwards'});
+    }
+  }
+}
+function enterPhoto(advance){
+  if(!photos.length){
+    setHint('先放入照片','点下方「上传照片」，一次可以多选 · 放好后伸出 1-4 指就能唤出回忆');
+    setStatus('还没有照片：点「上传照片（可多选）」把照片放进来，竖版照片效果最好。');
+    return;
+  }
+  var entering=(mode!=='photo');
+  mode='photo';
+  if(advance && !entering) photoIndex=(photoIndex+1)%photos.length;
+  burst=1; // 粒子先从树形爆散开，再聚拢成星光环绕
+  hideHeart(); markModeButtons();
+  revealPhoto(entering);
+  setHint('1-4 指 · 一张回忆正在发光','换一根手指数或按 Space 换一张 · 握拳收回成树 · 五指展开爱心墙');
+}
+function nextPhoto(){ if(photos.length) enterPhoto(true); }
+function prevPhoto(){
+  if(!photos.length){ enterPhoto(false); return; }
+  if(mode!=='photo'){ enterPhoto(false); return; }
+  photoIndex=((photoIndex-1)%photos.length+photos.length)%photos.length;
+  burst=0.85; revealPhoto(false);
+}
+
+function buildHeart(){
+  heartWall.innerHTML='';
+  var n=Math.min(photos.length,12);
+  if(!n) return;
+  var size=Math.min(innerWidth,innerHeight)*0.94;
+  heartWall.style.width=size+'px';
+  heartWall.style.height=size+'px';
+  for(var i=0;i<n;i++){
+    var t=(i/n)*Math.PI*2;
+    var hx=16*Math.pow(Math.sin(t),3);
+    var hy=13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);
+    var radScale=0.9+seededRand(i*3+1)*0.2;         // 沿轮廓略有深浅
+    var cx=50+hx*1.52*radScale;                       // 单位：%
+    var cy=47-hy*1.52*radScale;
+    var wPct=15.5+seededRand(i*7+2)*6.5;              // 大小不一
+    if(n<=4) wPct=24+seededRand(i*7+2)*6;
+    else if(n<=8) wPct=18.5+seededRand(i*7+2)*6;
+    var w=size*wPct/100;
+    var rot=(seededRand(i*13+5)-0.5)*36;              // -18° ~ +18°
+    var el=document.createElement('div');
+    el.className='hp';
+    el.style.width=w+'px';
+    el.style.height=(w*1.3)+'px';
+    el.style.left='calc('+cx+'% - '+(w/2)+'px)';
+    el.style.top='calc('+cy+'% - '+(w*0.65)+'px)';
+    el.style.zIndex=String(10+i);
+    var img=document.createElement('img');
+    img.src=photos[i].url;
+    img.alt='爱心照片墙里的照片 '+(i+1);
+    el.appendChild(img);
+    heartWall.appendChild(el);
+    if(el.animate){
+      el.animate([
+        {transform:'rotate('+(rot*2.2)+'deg) scale(.25)',opacity:0},
+        {transform:'rotate('+rot+'deg) scale(1.05)',opacity:1,offset:.7},
+        {transform:'rotate('+rot+'deg) scale(1)',opacity:1}
+      ],{duration:750,delay:i*65,easing:'cubic-bezier(.2,.8,.3,1)',fill:'forwards'});
+      el.style.transform='rotate('+rot+'deg)';
+    } else {
+      el.style.transform='rotate('+rot+'deg)';
+    }
+  }
+}
+function enterHeart(){
+  if(!photos.length){
+    setHint('先放入照片','点下方「上传照片」，一次可以多选 · 放好后张开五指就能围成一颗心');
+    setStatus('还没有照片：点「上传照片（可多选）」把照片放进来，最多用 12 张围成爱心。');
+    return;
+  }
+  mode='heart'; burst=1;
+  hidePhotoStage(); markModeButtons();
+  buildHeart();
+  heartWall.classList.add('show');
+  heartWall.setAttribute('aria-hidden','false');
+  var n=Math.min(photos.length,12);
+  setHint('五指 · '+n+' 张照片围成一颗心','金色星光在照片周围漂浮 · 握拳收回成树 · 伸出 1-4 指看单张');
+}
+
+function loadPhotoFiles(files){
+  var list=[];
+  for(var i=0;i<files.length;i++){ if(/^image\//.test(files[i].type||'')) list.push(files[i]); }
+  if(!list.length){ setStatus('没选到图片文件，请选 jpg / png 照片，可以一次多选。'); return; }
+  var pending=list.length, added=0;
+  list.forEach(function(file){
+    var url=URL.createObjectURL(file);
+    var img=new Image();
+    img.onload=function(){
+      photos.push({name:file.name||'我的照片',url:url}); added++;
+      if(--pending===0){
+        document.getElementById('btnUpload').textContent='🖼️ 再加照片 · 已 '+photos.length+' 张';
+        if(mode==='heart') buildHeart();
+        if(mode==='photo'){ photoIndex=Math.min(photoIndex,photos.length-1); updatePhotoCap(); }
+        setStatus('已放入 '+photos.length+' 张照片 · 伸出 1-4 指看单张，张开五指围成爱心，握拳变回树。');
+        if(mode==='tree') setHint('握拳 · 星光聚成树','已珍藏 '+photos.length+' 张照片 · 伸出 1-4 指看一张 · 五指看爱心墙');
+      }
+    };
+    img.onerror=function(){ URL.revokeObjectURL(url); if(--pending===0 && !added) setStatus('照片没读进来，换 jpg / png 再试试。'); };
+    img.src=url;
+  });
+}
+var photoInput=document.getElementById('photoInput');
+document.getElementById('btnUpload').onclick=function(){ photoInput.click(); };
+photoInput.addEventListener('change',function(){ if(photoInput.files&&photoInput.files.length) loadPhotoFiles(photoInput.files); photoInput.value=''; });
+addEventListener('dragover',function(e){ e.preventDefault(); });
+addEventListener('drop',function(e){ e.preventDefault(); if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length) loadPhotoFiles(e.dataTransfer.files); });
+document.getElementById('btnTree').onclick=function(){ enterTree(); };
+document.getElementById('btnPhotoMode').onclick=function(){ enterPhoto(false); };
+document.getElementById('btnHeart').onclick=function(){ enterHeart(); };
+addEventListener('keydown',function(e){
+  if(e.code==='Space'){ e.preventDefault(); if(mode==='photo') nextPhoto(); else enterPhoto(false); }
+  else if(e.code==='Escape'){ enterTree(); }
+  else if(e.code==='ArrowRight'){ nextPhoto(); }
+  else if(e.code==='ArrowLeft'){ prevPhoto(); }
+});
+markModeButtons();
+</script>
+<script>
+// ================= 手势识别：只按伸出手指数量切换 =================
+var video=document.getElementById('video'), overlay=document.getElementById('overlay'), octx=overlay.getContext('2d');
+var trackDot=document.getElementById('trackDot'), trackText=document.getElementById('trackText');
+var recDot=document.getElementById('recDot');
+var FINGERTIPS=[4,8,12,16,20];
+
+function dist2d(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+function fingerExtended(lm,tip,pip){ return dist2d(lm[tip],lm[0])>dist2d(lm[pip],lm[0])*1.12; }
+function countFingers(lm){
+  var ext=[fingerExtended(lm,8,6),fingerExtended(lm,12,10),fingerExtended(lm,16,14),fingerExtended(lm,20,18)];
+  var thumbExt=dist2d(lm[4],lm[17])>dist2d(lm[3],lm[17])*1.05;
+  return ext.filter(Boolean).length+(thumbExt?1:0);
+}
+
+// --- 只认操作手：拿手机的那只手入镜也完全忽略 ---
+var operatingHand='Right', lockedHandLabel=null;
+function operatingHandText(){
+  if(operatingHand==='Auto') return lockedHandLabel?('已锁定'+(lockedHandLabel==='Right'?'右手':'左手')):'自动锁定';
+  return operatingHand==='Right'?'只认右手':'只认左手';
+}
+function updateHandUI(){
+  document.querySelectorAll('.hand-btn').forEach(function(b){ b.classList.toggle('active',b.dataset.hand===operatingHand); });
+}
+function setOperatingHand(m){
+  operatingHand=m; lockedHandLabel=null;
+  candCount=-1; actedCount=-1;
+  updateHandUI();
+  setStatus('操作手已切换为「'+(m==='Auto'?'自动锁定第一只手':(m==='Right'?'右手':'左手'))+'」，拿手机的另一只手入镜也不会触发。');
+}
+document.querySelectorAll('.hand-btn').forEach(function(b){ b.onclick=function(){ setOperatingHand(b.dataset.hand); }; });
+function handLabelOf(res,i){
+  try{ return (res.multiHandedness&&res.multiHandedness[i]&&res.multiHandedness[i].label)||null; }catch(_){ return null; }
+}
+
+// --- 手指数稳定判定：同一个数稳住约 240ms 才触发，防抖动误触 ---
+var candCount=-1, candSince=0, actedCount=-1, noHandSince=0;
+var lastHandX=null;
+function applyFingerCount(count){
+  if(count===0){ enterTree(); }
+  else if(count>=5){ enterHeart(); }
+  else { // 1-4 指
+    if(mode==='photo') nextPhoto();
+    else enterPhoto(false);
+  }
+}
+function onResults(res){
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  var now=performance.now();
+  if(!res.multiHandLandmarks||!res.multiHandLandmarks.length){
+    trackText.textContent='寻找手';
+    lastHandX=null;
+    if(!noHandSince) noHandSince=now;
+    if(now-noHandSince>800){ candCount=-1; actedCount=-1; } // 手离开够久后，重新比同样的手势也能再触发
+    return;
+  }
+  noHandSince=0;
+  // 从画面里所有手中，只挑操作手
+  var selectedIdx=-1;
+  for(var hi=0;hi<res.multiHandLandmarks.length;hi++){
+    var lbl=handLabelOf(res,hi);
+    if(operatingHand==='Auto'){
+      if(!lockedHandLabel){ selectedIdx=hi; lockedHandLabel=lbl; updateHandUI(); break; }
+      if(lbl===lockedHandLabel){ selectedIdx=hi; break; }
+    } else if(lbl===operatingHand){ selectedIdx=hi; break; }
+  }
+  if(selectedIdx===-1&&!handLabelOf(res,0)&&res.multiHandLandmarks.length===1) selectedIdx=0;
+  if(selectedIdx===-1){
+    // 只有拿手机的手在画面里：完全忽略
+    trackText.textContent='拿手机的手 · 已忽略';
+    lastHandX=null;
+    return;
+  }
+  var lm=res.multiHandLandmarks[selectedIdx];
+  // 骨架：白色线条 + 黄色指尖圆点（和参考视频一致的画法）
+  if(window.drawConnectors&&window.HAND_CONNECTIONS){
+    drawConnectors(octx,lm,HAND_CONNECTIONS,{color:'rgba(255,255,255,.92)',lineWidth:2});
+  }
+  for(var li=0;li<lm.length;li++){
+    var pt=lm[li], isTip=FINGERTIPS.indexOf(li)!==-1;
+    octx.beginPath();
+    octx.arc(pt.x*overlay.width,pt.y*overlay.height,isTip?5:2.2,0,Math.PI*2);
+    octx.fillStyle=isTip?'#ffd94d':'rgba(255,255,255,.85)';
+    octx.fill();
+  }
+  // 手掌移动 -> 轻微旋转视角
+  var palmX=lm[9].x;
+  if(lastHandX!==null) handRotVel+=(lastHandX-palmX)*0.05;
+  lastHandX=palmX;
+  // 手指数
+  var count=countFingers(lm);
+  trackText.textContent=count+' 指';
+  trackDot.className='dot on';
+  if(count!==candCount){ candCount=count; candSince=now; }
+  else if(candCount!==actedCount&&now-candSince>240){
+    actedCount=candCount;
+    applyFingerCount(candCount);
+  }
+}
+
+// ================= 摄像头与识别器（公开 CDN 优先，包内本地组件兜底，打开前预热）=================
+var camRunning=false, camStream=null, sendBusy=false, handsObj=null, pumpActive=false, sendErrCount=0, camStarting=false;
+var prewarmPromise=null, prewarmedHands=null;
+
+function setCamUI(state,text){
+  trackDot.className='dot'+(state==='on'?' on':state==='err'?' err':'');
+  if(text) trackText.textContent=text;
+}
+function camFail(title,detail){
+  pumpActive=false;
+  setCamUI('err','开启失败');
+  recDot.className='rec';
+  setHint(title,detail);
+  setStatus(detail);
+  var btn=document.getElementById('startCam');
+  btn.disabled=false; btn.textContent='📷 重新开启摄像头';
+}
+function explainCamError(e){
+  var name=(e&&e.name)||'', msg=(e&&e.message)||'';
+  var raw=name+' '+msg;
+  if(/Invalid security origin/i.test(raw)||name==='SecurityError'||(window.isSecureContext===false)){
+    return {title:'这个打开方式用不了摄像头',detail:'浏览器只允许在安全页面（https）里开摄像头。请用本站的 https 网址在 Chrome 或 Edge 里直接打开（不要用 http://IP 地址或本地文件方式打开），再点开启摄像头。先用下方按钮和鼠标也能玩。'};
+  }
+  if(name==='NotAllowedError'||name==='PermissionDeniedError'||/denied|permission/i.test(raw)){
+    return {title:'摄像头权限被拒绝了',detail:'在地址栏左侧的锁/摄像头图标里把摄像头改成「允许」，再点重新开启；如果在 App 内打开，去系统设置里给这个 App 开摄像头权限。'};
+  }
+  if(name==='NotFoundError'||name==='DevicesNotFoundError'||name==='OverconstrainedError'){
+    return {title:'没找到可用的摄像头',detail:'确认摄像头没被其他软件占用，插好外接摄像头后再点重新开启。没有摄像头也能用下方按钮和鼠标玩。'};
+  }
+  if(name==='NotReadableError'||name==='TrackStartError'||/in use|busy/i.test(raw)){
+    return {title:'摄像头被占用了',detail:'摄像头正在被别的软件使用（视频通话或另一个开着摄像头的网页）。关掉占用它的软件或页面，再点重新开启。'};
+  }
+  if(name==='VideoNoFrame'){
+    return {title:'摄像头没送出画面',detail:'摄像头打开了但一直没有画面数据。通常是被其他软件占用，或系统隐私设置拦着。关掉占用摄像头的程序，再点重新开启。'};
+  }
+  if(name==='AbortError'){
+    return {title:'摄像头启动被中断',detail:'再点一次「重新开启摄像头」试试；还不行就刷新页面再开。'};
+  }
+  return {title:'摄像头打开失败',detail:'出了点问题（'+(msg||name||'未知错误')+'）。刷新页面再试；还是不行就换 Chrome 打开本页面。下方按钮和鼠标拖动也能玩。'};
+}
+// getUserMedia 报 NotAllowedError 时，先查真实权限状态再下结论：
+// 设置里明明「允许」却还被拒，多半是页面被套在 App / 另一个网页里打开、外层没放行摄像头，
+// 这种改 Windows 或浏览器设置都没用，必须把网址拿到 Chrome / Edge 里直接打开。
+async function camDenied(e){
+  stopStream(); camRunning=false;
+  var state='';
+  try{
+    if(navigator.permissions&&navigator.permissions.query){
+      var st=await navigator.permissions.query({name:'camera'});
+      state=(st&&st.state)||'';
+    }
+  }catch(_){}
+  var embedded=false;
+  try{ embedded=(window.self!==window.top); }catch(_){ embedded=true; }
+  if(embedded){
+    camFail('是打开方式把摄像头挡住了','浏览器和系统设置里摄像头都是允许的，但这个页面现在是被套在 App（或另一个网页）里面打开的，外层没有把摄像头放行给它，所以一申请就被拒绝——改设置解决不了。把这个页面的网址复制到电脑的 Chrome 或 Edge 里直接打开，再点「开启摄像头」，就会正常弹询问、能打开了。');
+  } else if(state==='granted'){
+    camFail('设置里是允许的，浏览器却拦了','查过了：这个页面在浏览器里的摄像头权限是「允许」，但这次申请还是被拦下。先刷新页面再点一次开启；还不行就换 Chrome 打开这个页面再试。');
+  } else if(state==='prompt'){
+    camFail('还差最后一步：点「允许」','刚才浏览器的摄像头询问没有点到「允许」（可能一闪就被关掉了）。再点一次「重新开启摄像头」，弹窗出现时选「允许」。');
+  } else {
+    var info=explainCamError(e);
+    camFail(info.title,info.detail);
+  }
+}
+function stopStream(){
+  if(camStream){ camStream.getTracks().forEach(function(t){ try{t.stop()}catch(_){} }); camStream=null; }
+  try{ video.srcObject=null; }catch(_){}
+}
+function waitForVideoData(timeoutMs){
+  return new Promise(function(resolve,reject){
+    var t0=Date.now();
+    (function check(){
+      if(video.videoWidth>0&&video.readyState>=2){ resolve(); return; }
+      if(Date.now()-t0>timeoutMs){ var e=new Error('摄像头一直没有送出画面'); e.name='VideoNoFrame'; reject(e); return; }
+      // 播放若被浏览器拦下就反复重试：play() 被拦和摄像头权限是两回事，不能因此报「被拒绝」
+      if(video.paused){ try{ var pr=video.play(); if(pr&&pr.catch) pr.catch(function(){}); }catch(_){} }
+      setTimeout(check,150);
+    })();
+  });
+}
+var MP_LOCAL='assets/mediapipe/';
+var MP_CDN='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
+var mpBase=MP_LOCAL, mpDiag='';
+var MP_FILES=['hands_solution_packed_assets_loader.js','hands_solution_simd_wasm_bin.js','hands_solution_simd_wasm_bin.wasm','hands_solution_wasm_bin.js','hands_solution_wasm_bin.wasm','hands_solution_packed_assets.data','hands.binarypb','hand_landmark_lite.tflite','hand_landmark_full.tflite'];
+function mpHead(base,f){
+  return fetch(base+f,{method:'HEAD'}).then(function(r){
+    if(r.ok) return true;
+    return fetch(base+f,{headers:{'Range':'bytes=0-0'}}).then(function(r2){ return r2.ok||r2.status===206; }).catch(function(){ return false; });
+  }).catch(function(){
+    return fetch(base+f,{headers:{'Range':'bytes=0-0'}}).then(function(r2){ return r2.ok||r2.status===206; }).catch(function(){ return false; });
+  });
+}
+async function mpPreflight(){
+  var cdnRes=await Promise.all(MP_FILES.map(function(f){ return mpHead(MP_CDN,f); }));
+  if(cdnRes.every(Boolean)){ mpBase=MP_CDN; mpDiag='识别组件走公开 CDN 加载'; return; }
+  var localRes=await Promise.all(MP_FILES.map(function(f){ return mpHead(MP_LOCAL,f); }));
+  var failed=MP_FILES.filter(function(f,i){ return !localRes[i]; });
+  if(!failed.length){ mpBase=MP_LOCAL; mpDiag='CDN 连不上，已切换包内本地识别组件'; }
+  else { mpBase=MP_LOCAL; mpDiag='本地组件缺文件（'+failed.join('、')+'），CDN 也连不上'; }
+}
+function mpLoadScript(src){
+  return new Promise(function(resolve){
+    var s=document.createElement('script'); s.src=src;
+    s.onload=function(){ resolve(true); }; s.onerror=function(){ resolve(false); };
+    document.head.appendChild(s);
+  });
+}
+async function ensureHandsLib(){
+  if(typeof Hands!=='undefined') return true;
+  await mpLoadScript(MP_CDN+'hands.js');
+  await mpLoadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js');
+  return typeof Hands!=='undefined';
+}
+async function mpWasmOk(){
+  try{ await WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0])); return true; }
+  catch(e){ return false; }
+}
+async function mpDiagnose(){
+  var parts=[];
+  if(mpDiag) parts.push(mpDiag);
+  if(!(await mpWasmOk())) parts.push('浏览器拒绝运行识别引擎（WebAssembly 被禁止）——请改用 Chrome 或 Edge 打开本页面');
+  if(parts.length) setStatus(statusEl.textContent+'【自检：'+parts.join('；')+'】');
+}
+function handsFail(e){
+  pumpActive=false;
+  setCamUI('err','识别未启动');
+  setHint('📷 摄像头开着，手势识别没启动','画面已经出来了，是手势识别启动时出错了（'+(((e&&e.message)||e)||'未知错误')+'）。等几秒点「重试手势识别」再试。');
+  setStatus('手势识别启动失败：'+(((e&&e.message)||e)||'未知错误'));
+  var btn=document.getElementById('startCam');
+  btn.disabled=false; btn.textContent='🔁 重试手势识别';
+  mpDiagnose();
+}
+async function pumpFrames(){
+  if(!pumpActive) return;
+  if(handsObj&&video.readyState>=2&&video.videoWidth>0&&!sendBusy){
+    sendBusy=true;
+    try{ await handsObj.send({image:video}); sendErrCount=0; }
+    catch(e){
+      sendErrCount++;
+      if(sendErrCount>=25){ sendBusy=false; handsFail(e); return; }
+    }
+    sendBusy=false;
+  }
+  requestAnimationFrame(pumpFrames);
+}
+async function initHands(btn){
+  if(handsObj&&handsObj.close){ try{ handsObj.close(); }catch(_){} }
+  handsObj=null;
+  var hands=null;
+  if(prewarmedHands){
+    var pre=prewarmedHands; prewarmedHands=null;
+    try{ await pre.send({image:video}); hands=pre; }
+    catch(e){ try{ pre.close(); }catch(_){} hands=null; }
+  }
+  if(!hands){
+    hands=new Hands({locateFile:function(f){ return mpBase+f; }});
+    hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:0.6,minTrackingConfidence:0.5});
+    hands.onResults(onResults);
+    var lastErr=null, ok=false;
+    for(var attempt=0;attempt<60&&!ok;attempt++){
+      if(video.videoWidth>0&&video.readyState>=2){
+        try{ await hands.send({image:video}); ok=true; }
+        catch(e){ lastErr=e; if(/Invalid security origin/i.test((e&&e.message)||'')){ try{ hands.close(); }catch(_){} throw e; } }
+      }
+      if(!ok){ await new Promise(function(r){ setTimeout(r,250); }); }
+    }
+    if(!ok){ try{ hands.close(); }catch(_){} handsFail(lastErr); return false; }
+  }
+  handsObj=hands; sendErrCount=0; pumpActive=true;
+  setCamUI('on','0 指');
+  recDot.className='rec on';
+  btn.disabled=false; btn.textContent='✅ 摄像头已开启';
+  setHint('握拳 · 星光聚成树','摄像头已开启 · '+operatingHandText()+' · 握拳成树 / 1-4 指看回忆 / 五指爱心墙');
+  setStatus('手势识别运行中 · 只认操作手，拿手机的手入镜也不会触发。');
+  pumpFrames();
+  return true;
+}
+function startPrewarm(){
+  if(prewarmPromise) return prewarmPromise;
+  prewarmPromise=(async function(){
+    try{
+      if(!(await ensureHandsLib())) return;
+      await mpPreflight();
+      var hands=new Hands({locateFile:function(f){ return mpBase+f; }});
+      hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:0.6,minTrackingConfidence:0.5});
+      hands.onResults(onResults);
+      var c=document.createElement('canvas'); c.width=640; c.height=480;
+      var cx=c.getContext('2d'); cx.fillStyle='#000'; cx.fillRect(0,0,640,480);
+      var warmed=false;
+      for(var i=0;i<4&&!warmed;i++){
+        try{ await hands.send({image:c}); warmed=true; }
+        catch(e){ await new Promise(function(r){ setTimeout(r,300); }); }
+      }
+      if(!warmed){ try{ hands.close(); }catch(_){} return; }
+      prewarmedHands=hands;
+      if(!camRunning&&!pumpActive) setStatus('手势识别已预热就绪 · 点「开启摄像头」马上就能用。照片只在本机处理，不会上传。');
+    }catch(e){ /* 预热失败不影响点击后的冷启动 */ }
+  })();
+  return prewarmPromise;
+}
+if('requestIdleCallback' in window){ requestIdleCallback(function(){ startPrewarm(); },{timeout:3500}); }
+else{ setTimeout(function(){ startPrewarm(); },2000); }
+addEventListener('load',function(){ startPrewarm(); });
+
+// v11 的打开方式：识别引擎在页面打开后就后台预热；点按钮时第一件事就是申请摄像头，
+// 中间不夹任何组件检查或异步等待，保证申请发生在点击手势内，不被浏览器误判拒绝。
+document.getElementById('startCam').onclick=async function(){
+  var btn=this;
+  if(camStarting||pumpActive) return;
+  camStarting=true;
+  btn.disabled=true;
+  // 摄像头已经出画面、只是识别没起来：直接重试识别，不再重新申请摄像头
+  if(camStream&&video.srcObject&&video.videoWidth>0){
+    btn.textContent='正在启动手势识别…';
+    try{
+      if(!(await ensureHandsLib())){ handsFail(new Error('手势识别组件没加载出来，检查网络后点重试')); camStarting=false; return; }
+      await mpPreflight();
+      await initHands(btn);
+    }catch(e){ handsFail(e); }
+    camStarting=false; return;
+  }
+  if(window.isSecureContext===false||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    var infoS=explainCamError(new Error('Invalid security origin'));
+    camFail(infoS.title,infoS.detail);
+    camStarting=false; return;
+  }
+  btn.textContent='正在打开摄像头…';
+  stopStream();
+  // 点击后立刻申请摄像头：getUserMedia 必须紧贴点击触发，前面不能有任何 await
+  var gumPromise;
+  try{
+    gumPromise=navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
+  }catch(e){
+    if(e&&(e.name==='NotAllowedError'||e.name==='PermissionDeniedError')){ await camDenied(e); }
+    else { var infoG=explainCamError(e); camFail(infoG.title,infoG.detail); }
+    camStarting=false; return;
+  }
+  try{
+    camStream=await gumPromise;
+  }catch(e1){
+    if(e1&&(e1.name==='OverconstrainedError'||e1.name==='NotFoundError'||e1.name==='DevicesNotFoundError')){
+      // 带参数申请不到就退回最简单的申请方式再试一次
+      try{ camStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false}); }
+      catch(e2){
+        if(e2&&(e2.name==='NotAllowedError'||e2.name==='PermissionDeniedError')){ await camDenied(e2); }
+        else { stopStream(); camRunning=false; var info2=explainCamError(e2); camFail(info2.title,info2.detail); }
+        camStarting=false; return;
+      }
+    } else if(e1&&(e1.name==='NotAllowedError'||e1.name==='PermissionDeniedError')){
+      // 申请被拒绝：先分清是真的没给权限，还是页面被外层套住没放行，别一律报「权限被拒绝」
+      await camDenied(e1);
+      camStarting=false; return;
+    } else {
+      stopStream(); camRunning=false;
+      var info1=explainCamError(e1);
+      camFail(info1.title,info1.detail);
+      camStarting=false; return;
+    }
+  }
+  try{
+    camStream.getVideoTracks().forEach(function(t){
+      t.onended=function(){
+        if(!camStream) return;
+        stopStream(); camRunning=false;
+        camFail('摄像头被关掉了','摄像头刚被系统或其他软件停掉。关掉占用摄像头的软件后，点重新开启再试。');
+      };
+    });
+    video.srcObject=camStream;
+    video.muted=true;
+    // play() 被浏览器拦下（NotAllowedError）不等于摄像头被拒绝：摄像头已经申请到了，
+    // 只要视频流送出画面就继续，waitForVideoData 里还会反复重试播放
+    try{ await video.play(); }catch(playErr){}
+    await waitForVideoData(8000);
+  }catch(e){
+    stopStream(); camRunning=false;
+    var info=explainCamError(e);
+    camFail(info.title,info.detail);
+    camStarting=false; return;
+  }
+  camRunning=true;
+  document.getElementById('camEmpty').style.display='none';
+  setCamUI('on','启动识别中');
+  recDot.className='rec on';
+  btn.textContent='正在启动手势识别…';
+  setHint('👋 摄像头已开启','正在启动手势识别，稍等一两秒…');
+  // 摄像头已经出画面，之后只是启动识别：这一步失败按「识别未启动」处理，不再误报成摄像头权限被拒绝
+  try{
+    if(!(await ensureHandsLib())){ handsFail(new Error('手势识别组件没加载出来，检查网络后点重试')); camStarting=false; return; }
+    if(prewarmPromise){ try{ await prewarmPromise; }catch(_){} }
+    else{ await mpPreflight(); }
+    await initHands(btn);
+  }catch(e){
+    handsFail(e);
+  }
+  camStarting=false;
+};
+if(window.isSecureContext===false){
+  setCamUI('err','打开方式受限');
+  setStatus('当前打开方式用不了摄像头：请用本站的 https 网址在 Chrome 或 Edge 里直接打开再试。下方按钮和鼠标也能玩。');
+}
+updateHandUI();
+</script>
+</body>
+</html>
