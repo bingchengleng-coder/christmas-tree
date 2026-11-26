@@ -769,10 +769,12 @@ addEventListener('keydown',function(e){
 markModeButtons();
 </script>
 <script>
-// ================= 照片金粉环绕：出现 / 切换时金粉沿照片边缘旋绕 =================
-// 一圈金色粒子从照片边框爆开，顺时针绕着边框转圈（旋涡式），一边转一边向外扩散、
-// 带拖尾，持续约 1.5-2.1 秒，后半程缓缓下沉并渐弱。单张照片模式密而亮；
-// 爱心墙模式更淡更疏、节流触发，只作点缀，不抢爱心轮廓。
+// ================= 照片金粉环绕：出现 / 切换时金粉沿照片边框转圈 =================
+// 一圈金色粉末贴着照片的矩形边框排布，顺时针沿边框一周一周地转（旋涡式），带拖尾，
+// 持续约 2 秒后在原地渐渐淡去。轨道始终贴着边框、圆心每帧对准照片中心：
+// 只绕圈，不平移、不向外漂移、不下沉，圈不会转着转着偏到旁边去。
+// 每次单张照片出现 / 切换都触发（手指数、Space、方向键、按钮都走 revealPhoto）。
+// 单张照片模式密而亮；爱心墙模式更淡更疏、节流触发，只作点缀，不抢爱心轮廓。
 var swirlCanvas=document.getElementById('goldSwirl');
 var swirlCtx=swirlCanvas.getContext('2d');
 var swirlParts=[], swirlRunning=false, swirlLastT=0, swirlLastHeart=0;
@@ -796,53 +798,89 @@ swirlSprite.width=swirlSprite.height=64;
   g.addColorStop(1,'rgba(246,182,80,0)');
   x.fillStyle=g; x.fillRect(0,0,64,64);
 })();
-function spawnSwirl(cx,cy,hw,hh,count,strength){
+function rectPerimeterPoint(u,hw,hh){
+  // 沿矩形边框取点：从左上角起顺时针（上边向右、右边向下、下边向左、左边向上）
+  var W=hw*2, H=hh*2, P=2*(W+H);
+  var d=(((u%1)+1)%1)*P;
+  if(d<W) return {x:-hw+d, y:-hh, nx:0, ny:-1};
+  d-=W;
+  if(d<H) return {x:hw, y:-hh+d, nx:1, ny:0};
+  d-=H;
+  if(d<W) return {x:hw-d, y:hh, nx:0, ny:1};
+  d-=W;
+  return {x:-hw, y:hh-d, nx:-1, ny:0};
+}
+function spawnSwirl(cx,cy,hw,hh,count,strength,follow){
   if(swirlReduced||count<=0) return;
+  var P=4*(hw+hh);
   for(var i=0;i<count;i++){
     swirlParts.push({
-      cx:cx, cy:cy, hw:hw, hh:hh,
-      theta:Math.random()*Math.PI*2,
-      omega:1.5+Math.random()*1.4, // 屏幕坐标 y 向下，角度增大即顺时针
-      k0:0.94+Math.random()*0.14,
-      k1:1.38+Math.random()*0.35,
-      age:-Math.random()*0.22, // 错峰爆开，不是齐刷刷一圈
-      life:1.45+Math.random()*0.65,
-      size:(2.6+Math.pow(Math.random(),1.6)*6.5)*strength,
-      alpha:(0.55+Math.random()*0.45)*Math.min(1,strength+0.25),
-      sink:0, hist:[]
+      cx:cx, cy:cy, hw:hw, hh:hh, follow:follow||null,
+      u:i/count+(Math.random()-0.5)*(0.6/count), // 沿边框一圈均匀起步，切换瞬间就是完整一圈
+      uSpeed:0.42+Math.random()*0.18, // 顺时针沿边框走：约 2 秒绕一圈多，一眼看得出在转
+      off0:-3+Math.random()*7, // 贴边框的固定小偏移，全程不长大——圈稳稳套在照片上，不漂移
+      wob:Math.random()*Math.PI*2,
+      age:Math.random()<0.72?0:-Math.random()*0.09, // 绝大多数立刻出现，只有极短错峰
+      life:2.05+Math.random()*0.55, // 持续约 2.1-2.6 秒
+      size:(5+Math.pow(Math.random(),1.5)*9)*strength,
+      core:0.8+Math.random()*1.1,
+      alpha:(0.78+Math.random()*0.22)*Math.min(1,strength+0.3),
+      hist:[]
     });
   }
-  if(swirlParts.length>900) swirlParts.splice(0,swirlParts.length-900);
+  if(swirlParts.length>1700) swirlParts.splice(0,swirlParts.length-1700);
   if(!swirlRunning){ swirlRunning=true; swirlLastT=performance.now(); requestAnimationFrame(swirlTick); }
 }
 function swirlTick(now){
   var dt=Math.min(0.05,((now-swirlLastT)/1000)||0.016); swirlLastT=now;
   swirlCtx.clearRect(0,0,innerWidth,innerHeight);
   swirlCtx.globalCompositeOperation='lighter';
+  // 跟随目标每帧只量一次：圆心对准照片（或爱心墙）中心，轨道尺寸贴合它的边框；
+  // 照片入场动画、窗口尺寸变化时圈都稳稳套在照片上，不会偏到旁边
+  var photoBox=null, heartBox=null;
   var alive=[];
   for(var i=0;i<swirlParts.length;i++){
     var p=swirlParts[i];
+    if(p.follow==='photo'){
+      if(photoBox===null){
+        var cr=photoCard.getBoundingClientRect();
+        photoBox=(photoCard.offsetWidth>0)?{cx:cr.left+cr.width/2, cy:cr.top+cr.height/2, hw:photoCard.offsetWidth/2+7, hh:photoCard.offsetHeight/2+7}:false;
+      }
+      if(photoBox){ p.cx=photoBox.cx; p.cy=photoBox.cy; p.hw=photoBox.hw; p.hh=photoBox.hh; }
+    } else if(p.follow==='heart'){
+      if(heartBox===null){
+        var hr=heartWall.getBoundingClientRect();
+        heartBox=(heartWall.offsetWidth>0)?{cx:hr.left+hr.width/2, cy:hr.top+hr.height/2, hw:heartWall.offsetWidth*0.485, hh:heartWall.offsetHeight*0.485}:false;
+      }
+      if(heartBox){ p.cx=heartBox.cx; p.cy=heartBox.cy; p.hw=heartBox.hw; p.hh=heartBox.hh; }
+    }
     p.age+=dt;
     if(p.age<0){ alive.push(p); continue; }
     var lt=p.age/p.life;
     if(lt>=1) continue;
-    p.theta+=p.omega*dt*(1.12-0.3*lt); // 转速后段略缓
-    var e=1-Math.pow(1-Math.min(1,lt*1.5),3); // 向外扩散：先快后慢
-    var k=p.k0+(p.k1-p.k0)*e+lt*0.12;
-    if(lt>0.5) p.sink+=(lt-0.5)*46*dt; // 后半程缓缓下沉
-    var x=p.cx+Math.cos(p.theta)*p.hw*k;
-    var y=p.cy+Math.sin(p.theta)*p.hh*k+p.sink;
+    p.u+=p.uSpeed*dt; // 只沿边框前进，没有任何平移 / 扩散 / 下沉分量
+    var off=p.off0+Math.sin(p.wob+p.age*3.2)*1.3; // 仅 ±1.3px 的贴边轻颤，不是漂移
+    var pt=rectPerimeterPoint(p.u,p.hw,p.hh);
+    var x=p.cx+pt.x+pt.nx*off;
+    var y=p.cy+pt.y+pt.ny*off;
     p.hist.unshift([x,y]);
-    if(p.hist.length>5) p.hist.pop();
-    var fadeIn=Math.min(1,lt/0.1);
-    var fadeOut=lt<0.55?1:1-(lt-0.55)/0.45;
-    var a=p.alpha*fadeIn*fadeOut;
-    for(var j=p.hist.length-1;j>=0;j--){ // 拖尾：沿轨迹回放旧位置，越旧越淡越大
-      var ha=a*(1-j*0.16)*(j===0?1:0.55);
+    if(p.hist.length>9) p.hist.pop();
+    var fadeIn=Math.min(1,p.age/0.12);
+    var fo=lt<0.62?1:1-(lt-0.62)/0.38;
+    var a=p.alpha*fadeIn*fo*fo;
+    for(var j=p.hist.length-1;j>=0;j--){ // 拖尾：沿边框轨迹回放旧位置，越旧越淡
+      var ha=a*(j===0?1:(1-j*0.11)*0.5);
       if(ha<=0.01) continue;
-      var s=p.size*(1+j*0.22);
+      var s=p.size*(1+j*0.18);
       swirlCtx.globalAlpha=Math.min(1,ha);
       swirlCtx.drawImage(swirlSprite,p.hist[j][0]-s/2,p.hist[j][1]-s/2,s,s);
+    }
+    if(a>0.02){ // 头部再点一个白色亮芯，金粉更亮、更醒目
+      swirlCtx.globalAlpha=Math.min(1,a);
+      swirlCtx.fillStyle='rgba(255,250,230,1)';
+      swirlCtx.beginPath();
+      swirlCtx.arc(x,y,p.core,0,Math.PI*2);
+      swirlCtx.fill();
     }
     alive.push(p);
   }
@@ -855,10 +893,10 @@ function swirlTick(now){
 function spawnPhotoSwirl(){
   function go(){
     if(mode!=='photo') return;
-    var sr=photoStage.getBoundingClientRect();
+    var cr=photoCard.getBoundingClientRect();
     var w=photoCard.offsetWidth, h=photoCard.offsetHeight;
     if(!w||!h) return;
-    spawnSwirl(sr.left+sr.width/2, sr.top+h/2, w/2+7, h/2+7, 340, 1);
+    spawnSwirl(cr.left+cr.width/2, cr.top+cr.height/2, w/2+7, h/2+7, 620, 1, 'photo');
   }
   if(photoImg.complete&&photoImg.naturalWidth>0){ requestAnimationFrame(go); }
   else { // 图片还没解码完，等它就绪（或最多 400ms）再绕，位置才对得准边框
@@ -874,7 +912,7 @@ function spawnHeartSwirl(){
   swirlLastHeart=now;
   var r=heartWall.getBoundingClientRect();
   if(!r.width) return;
-  spawnSwirl(r.left+r.width/2, r.top+r.height/2, r.width*0.485, r.height*0.485, 210, 0.55);
+  spawnSwirl(r.left+r.width/2, r.top+r.height/2, r.width*0.485, r.height*0.485, 300, 0.55, 'heart');
 }
 </script>
 <script>
