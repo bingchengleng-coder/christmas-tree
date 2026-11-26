@@ -59,8 +59,8 @@ canvas.webgl{width:100%;height:100%;display:block}
 #heartWall .heart-outline{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
 #heartWall .hp{position:absolute;transform-origin:50% 50%;padding:4px;background:linear-gradient(160deg,#2a1a08,#17100a);border:1.5px solid var(--gold);border-radius:4px;box-shadow:0 16px 44px rgba(0,0,0,.7),0 0 26px rgba(242,194,104,.28);line-height:0}
 #heartWall .hp img{display:block;width:100%;height:100%;object-fit:cover;border-radius:2px}
-#heartWall .powder-dot{animation:powderTwinkle 2.2s ease-in-out infinite}
-@keyframes powderTwinkle{0%,100%{opacity:.45}50%{opacity:1}}
+#heartWall .powder-dot{animation:powderTwinkle 4.8s ease-in-out infinite}
+@keyframes powderTwinkle{0%,100%{opacity:.07}50%{opacity:.58}}
 @media (prefers-reduced-motion: reduce){#heartWall .powder-dot{animation:none}}
 
 /* 照片金粉环绕层（盖在照片上、控件下，不挡操作） */
@@ -586,8 +586,8 @@ function buildHeart(){
     var f=seg>0?(sa-cum[idx-1])/seg:0;
     return {x:pts[idx-1].x+(pts[idx].x-pts[idx-1].x)*f, y:pts[idx-1].y+(pts[idx].y-pts[idx-1].y)*f};
   }
-  // 照片后面垫爱心光：中间一大片淡淡的半透明爱心光晕垫底，
-  // 轮廓不用任何实线，只沿同一条曲线密撒发光金粉；爱心中间不放照片、保持空
+  // 照片后面垫爱心光：中间一大片极淡的半透明爱心光晕垫底，
+  // 轮廓不用任何实线，只沿同一条曲线稀疏撒少量淡淡金粉；爱心中间不放照片、保持空
   var d='';
   for(var s2=0;s2<=M;s2+=6){
     d+=(s2===0?'M':'L')+pts[s2].x.toFixed(1)+' '+pts[s2].y.toFixed(1);
@@ -599,15 +599,13 @@ function buildHeart(){
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   var halo=document.createElementNS(svgNS,'path');
   halo.setAttribute('d',d);
-  halo.setAttribute('fill','rgba(255,186,92,.13)');
+  halo.setAttribute('fill','rgba(255,186,92,.05)');
   halo.setAttribute('style','filter:blur(28px)');
   svg.appendChild(halo);
-  // 荧光粉轮廓：没有任何实线，只沿爱心曲线密撒发光金粉粒子。
-  // 三层粉末：底层大而软的光晕点（糊成一片金色光雾）、主层密集粉粒（间距约 5px，
-  // 沿法线随机抖动 ±3px，像手撒上去的粉，不是一条机描的线）、少量散落到轮廓外的细粉。
-  // 每颗粉粒大小、亮度、闪烁相位都不同，整圈粉末此起彼伏地闪，像荧光粉在发光；
-  // 密度足够高，粉粒几乎相接，不靠照片也能一眼认出爱心形状。
-  var powderFills=['rgba(255,233,168,1)','rgba(255,215,106,.98)','rgba(255,201,77,.95)','rgba(255,243,196,1)','rgba(255,198,92,.92)'];
+  // 荧光粉轮廓：没有任何实线，只沿爱心曲线稀疏撒少量淡淡金粉（约 40 颗）。
+  // 颗粒之间留明显空隙，绝不相接成线；每颗都很淡、透明度低、亮度柔和，
+  // 各自缓慢闪烁明灭（若隐若现），看过去只是几粒金粉隐约勾出爱心。
+  var powderFills=['rgba(255,233,168,.48)','rgba(255,215,106,.42)','rgba(255,201,77,.38)','rgba(255,243,196,.5)','rgba(255,198,92,.36)'];
   function powderCircle(g,cx,cy,r,fill,seed,twinkle){
     var c=document.createElementNS(svgNS,'circle');
     c.setAttribute('cx',cx.toFixed(1));
@@ -616,7 +614,7 @@ function buildHeart(){
     c.setAttribute('fill',fill);
     if(twinkle){
       c.setAttribute('class','powder-dot');
-      c.setAttribute('style','animation-duration:'+(1.4+seededRand(seed*3+1)*2.2).toFixed(2)+'s;animation-delay:'+(-seededRand(seed*5+2)*3).toFixed(2)+'s');
+      c.setAttribute('style','animation-duration:'+(3.4+seededRand(seed*3+1)*3.2).toFixed(2)+'s;animation-delay:'+(-seededRand(seed*5+2)*6).toFixed(2)+'s');
     }
     g.appendChild(c);
   }
@@ -625,41 +623,35 @@ function buildHeart(){
     var tx=nb.x-na.x, ty=nb.y-na.y, tl=Math.sqrt(tx*tx+ty*ty)||1;
     return {x:-ty/tl, y:tx/tl};
   }
-  var dotN=Math.max(380,Math.round(P/5));
-  // 底层光晕：每隔一颗主粉粒垫一个大软点，整组模糊成光雾，给粉末托底发光
+  var dotN=42;
+  // 底层光晕：只给少数主粉粒垫一个很淡的小软点，不糊成光雾、不托出线条感
   var glowG=document.createElementNS(svgNS,'g');
-  glowG.setAttribute('style','filter:blur(5px)');
-  for(var gi=0;gi<dotN;gi+=2){
-    var gs=P*gi/dotN, gp=pointAt(gs), gn=curveNormal(gs);
+  glowG.setAttribute('style','filter:blur(4px)');
+  for(var gi=0;gi<dotN;gi+=3){
+    var gs=P*gi/dotN+(seededRand(gi*11+3)-0.5)*18, gp=pointAt(gs), gn=curveNormal(gs);
     var goff=(seededRand(gi*11+3)-0.5)*5;
-    powderCircle(glowG,gp.x+gn.x*goff,gp.y+gn.y*goff,5.2+seededRand(gi*13+4)*3.4,'rgba(255,186,84,.34)',gi,false);
+    powderCircle(glowG,gp.x+gn.x*goff,gp.y+gn.y*goff,3+seededRand(gi*13+4)*1.8,'rgba(255,186,84,.12)',gi,false);
   }
   svg.appendChild(glowG);
-  // 主层粉粒：密集排列 + 法线抖动 + 大小不一，带投影光晕
+  // 主层粉粒：仅约 42 颗，沿弧长均匀撒开再加随机错位，颗粒间留大空隙，绝不相接
   var dotG=document.createElementNS(svgNS,'g');
-  dotG.setAttribute('style','filter:drop-shadow(0 0 4px rgba(255,196,92,.9))');
+  dotG.setAttribute('style','filter:drop-shadow(0 0 2px rgba(255,196,92,.4))');
   for(var di=0;di<dotN;di++){
-    var ds=P*di/dotN, dpt=pointAt(ds), dn=curveNormal(ds);
-    var off=(seededRand(di*17+5)-0.5)*6;
+    var ds=P*di/dotN+(seededRand(di*17+5)-0.5)*(P/dotN)*0.45, dpt=pointAt(ds), dn=curveNormal(ds);
+    var off=(seededRand(di*19+6)-0.5)*7;
     var px=dpt.x+dn.x*off, py=dpt.y+dn.y*off;
-    var rr=1.2+Math.pow(seededRand(di*19+6),1.4)*2.3;
-    powderCircle(dotG,px,py,rr,powderFills[(seededRand(di*23+7)*powderFills.length)|0],di,true);
-    // 约一半位置再补一颗小粉粒贴在旁边，粉末成簇、没有均匀机描感
-    if(seededRand(di*29+8)>0.45){
-      var off2=off+(seededRand(di*31+9)-0.5)*7, along=(seededRand(di*37+10)-0.5)*5;
-      var pa=pointAt(ds+along);
-      powderCircle(dotG,pa.x+dn.x*off2,pa.y+dn.y*off2,0.7+seededRand(di*41+11)*1.1,powderFills[(seededRand(di*43+12)*powderFills.length)|0],di+5000,true);
-    }
+    var rr=1+Math.pow(seededRand(di*23+7),1.4)*1.6;
+    powderCircle(dotG,px,py,rr,powderFills[(seededRand(di*29+8)*powderFills.length)|0],di,true);
   }
   svg.appendChild(dotG);
-  // 散落细粉：少量粉粒飘到轮廓内外 5-13px 处，稀疏而暗，是撒粉时自然飞溅的边缘
+  // 散落细粉：仅 8 颗极淡细粉飘在轮廓附近，是撒粉时自然飞溅的边缘
   var strayG=document.createElementNS(svgNS,'g');
-  var strayN=110;
+  var strayN=8;
   for(var si=0;si<strayN;si++){
     var ss=P*seededRand(si*47+13), sp2=pointAt(ss), sn=curveNormal(ss);
     var side=seededRand(si*53+14)>0.5?1:-1;
-    var soff=side*(5+seededRand(si*59+15)*8);
-    powderCircle(strayG,sp2.x+sn.x*soff,sp2.y+sn.y*soff,0.6+seededRand(si*61+16)*0.9,'rgba(255,214,120,.55)',si+9000,true);
+    var soff=side*(6+seededRand(si*59+15)*9);
+    powderCircle(strayG,sp2.x+sn.x*soff,sp2.y+sn.y*soff,0.6+seededRand(si*61+16)*0.8,'rgba(255,214,120,.28)',si+9000,true);
   }
   svg.appendChild(strayG);
   heartWall.appendChild(svg);
