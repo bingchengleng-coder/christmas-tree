@@ -59,6 +59,12 @@ canvas.webgl{width:100%;height:100%;display:block}
 #heartWall .heart-outline{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
 #heartWall .hp{position:absolute;transform-origin:50% 50%;padding:4px;background:linear-gradient(160deg,#2a1a08,#17100a);border:1.5px solid var(--gold);border-radius:4px;box-shadow:0 16px 44px rgba(0,0,0,.7),0 0 26px rgba(242,194,104,.28);line-height:0}
 #heartWall .hp img{display:block;width:100%;height:100%;object-fit:cover;border-radius:2px}
+#heartWall .powder-dot{animation:powderTwinkle 2.2s ease-in-out infinite}
+@keyframes powderTwinkle{0%,100%{opacity:.45}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){#heartWall .powder-dot{animation:none}}
+
+/* 照片金粉环绕层（盖在照片上、控件下，不挡操作） */
+#goldSwirl{position:fixed;inset:0;z-index:5;pointer-events:none}
 
 /* 右下角 GESTURE CAM */
 .cam-wrap{position:fixed;right:18px;bottom:52px;z-index:7;width:212px}
@@ -125,6 +131,8 @@ button.on{border-color:var(--gold);background:rgba(242,194,104,.22);color:var(--
 </div>
 
 <div id="heartWall" aria-hidden="true"></div>
+
+<canvas id="goldSwirl" aria-hidden="true"></canvas>
 
 <div class="cam-wrap">
   <div class="cam-tag"><span class="rec" id="recDot"></span>GESTURE CAM</div>
@@ -502,6 +510,7 @@ function revealPhoto(entering){
   updatePhotoCap();
   photoStage.classList.add('show');
   photoStage.setAttribute('aria-hidden','false');
+  spawnPhotoSwirl();
   if(photoCard.animate){
     if(entering){
       photoCard.animate([
@@ -553,8 +562,8 @@ function buildHeart(){
   heartWall.innerHTML='';
   var n=Math.min(photos.length,12);
   if(!n) return;
-  // 爱心放大：墙面宽高比 1.45，宽最多占屏幕 97%、高最多占 82%，像原视频里那样几乎铺满画面
-  var W=Math.min(innerWidth*0.97, innerHeight*0.82*1.45);
+  // 爱心放大：墙面宽高比 1.45，宽最多占屏幕 98%、高最多占 84%，铺满画面大部分，一眼就是爱心
+  var W=Math.min(innerWidth*0.98, innerHeight*0.84*1.45);
   var H=W/1.45;
   heartWall.style.width=W+'px';
   heartWall.style.height=H+'px';
@@ -577,8 +586,8 @@ function buildHeart(){
     var f=seg>0?(sa-cum[idx-1])/seg:0;
     return {x:pts[idx-1].x+(pts[idx].x-pts[idx-1].x)*f, y:pts[idx-1].y+(pts[idx].y-pts[idx-1].y)*f};
   }
-  // 照片后面垫爱心光：中间一大片淡淡的半透明爱心光晕 + 一道金色轮廓光，
-  // 都和照片共用同一条曲线描出来，保证轮廓严丝合缝；爱心中间不放照片、保持空
+  // 照片后面垫爱心光：中间一大片淡淡的半透明爱心光晕垫底，
+  // 轮廓不用任何实线，只沿同一条曲线密撒发光金粉；爱心中间不放照片、保持空
   var d='';
   for(var s2=0;s2<=M;s2+=6){
     d+=(s2===0?'M':'L')+pts[s2].x.toFixed(1)+' '+pts[s2].y.toFixed(1);
@@ -590,38 +599,84 @@ function buildHeart(){
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   var halo=document.createElementNS(svgNS,'path');
   halo.setAttribute('d',d);
-  halo.setAttribute('fill','rgba(255,186,92,.10)');
-  halo.setAttribute('style','filter:blur(26px)');
+  halo.setAttribute('fill','rgba(255,186,92,.13)');
+  halo.setAttribute('style','filter:blur(28px)');
   svg.appendChild(halo);
-  var glow=document.createElementNS(svgNS,'path');
-  glow.setAttribute('d',d);
-  glow.setAttribute('fill','rgba(242,194,104,.05)');
-  glow.setAttribute('stroke','rgba(242,194,104,.30)');
-  glow.setAttribute('stroke-width','10');
-  glow.setAttribute('stroke-linejoin','round');
-  glow.setAttribute('style','filter:blur(6px)');
-  svg.appendChild(glow);
-  var line=document.createElementNS(svgNS,'path');
-  line.setAttribute('d',d);
-  line.setAttribute('fill','none');
-  line.setAttribute('stroke','rgba(255,216,140,.8)');
-  line.setAttribute('stroke-width','2.4');
-  line.setAttribute('stroke-linejoin','round');
-  svg.appendChild(line);
-  heartWall.appendChild(svg);
-  // 照片沿轮廓排布：照片改小、按弧长均匀取点（不再按参数 t 取点，参数取点会在凹口和尖端处挤成一团），
-  // 从顶部凹口处错开半格起排，让凹口和尖底都落在两张照片之间的空隙里、露出来；
-  // 再兜底校验：任意相邻两张的中心距都不得小于最宽那张照片的宽度，不够就沿弧长把这对推开；
-  // 倾斜顺着该点轮廓切线方向轻轻靠（夹在 ±20° 内），每张角度各不相同
-  var baseW = n<=4?11 : n<=6?10 : n<=8?9.5 : 8.5;
-  var widths=[], minDist=0;
-  for(var wi=0;wi<n;wi++){
-    widths.push(W*(baseW+(seededRand(wi*7+2)-0.5)*1.6)/100);
-    if(widths[wi]>minDist) minDist=widths[wi];
+  // 荧光粉轮廓：没有任何实线，只沿爱心曲线密撒发光金粉粒子。
+  // 三层粉末：底层大而软的光晕点（糊成一片金色光雾）、主层密集粉粒（间距约 5px，
+  // 沿法线随机抖动 ±3px，像手撒上去的粉，不是一条机描的线）、少量散落到轮廓外的细粉。
+  // 每颗粉粒大小、亮度、闪烁相位都不同，整圈粉末此起彼伏地闪，像荧光粉在发光；
+  // 密度足够高，粉粒几乎相接，不靠照片也能一眼认出爱心形状。
+  var powderFills=['rgba(255,233,168,1)','rgba(255,215,106,.98)','rgba(255,201,77,.95)','rgba(255,243,196,1)','rgba(255,198,92,.92)'];
+  function powderCircle(g,cx,cy,r,fill,seed,twinkle){
+    var c=document.createElementNS(svgNS,'circle');
+    c.setAttribute('cx',cx.toFixed(1));
+    c.setAttribute('cy',cy.toFixed(1));
+    c.setAttribute('r',r.toFixed(1));
+    c.setAttribute('fill',fill);
+    if(twinkle){
+      c.setAttribute('class','powder-dot');
+      c.setAttribute('style','animation-duration:'+(1.4+seededRand(seed*3+1)*2.2).toFixed(2)+'s;animation-delay:'+(-seededRand(seed*5+2)*3).toFixed(2)+'s');
+    }
+    g.appendChild(c);
   }
+  function curveNormal(sa){
+    var na=pointAt(sa-7), nb=pointAt(sa+7);
+    var tx=nb.x-na.x, ty=nb.y-na.y, tl=Math.sqrt(tx*tx+ty*ty)||1;
+    return {x:-ty/tl, y:tx/tl};
+  }
+  var dotN=Math.max(380,Math.round(P/5));
+  // 底层光晕：每隔一颗主粉粒垫一个大软点，整组模糊成光雾，给粉末托底发光
+  var glowG=document.createElementNS(svgNS,'g');
+  glowG.setAttribute('style','filter:blur(5px)');
+  for(var gi=0;gi<dotN;gi+=2){
+    var gs=P*gi/dotN, gp=pointAt(gs), gn=curveNormal(gs);
+    var goff=(seededRand(gi*11+3)-0.5)*5;
+    powderCircle(glowG,gp.x+gn.x*goff,gp.y+gn.y*goff,5.2+seededRand(gi*13+4)*3.4,'rgba(255,186,84,.34)',gi,false);
+  }
+  svg.appendChild(glowG);
+  // 主层粉粒：密集排列 + 法线抖动 + 大小不一，带投影光晕
+  var dotG=document.createElementNS(svgNS,'g');
+  dotG.setAttribute('style','filter:drop-shadow(0 0 4px rgba(255,196,92,.9))');
+  for(var di=0;di<dotN;di++){
+    var ds=P*di/dotN, dpt=pointAt(ds), dn=curveNormal(ds);
+    var off=(seededRand(di*17+5)-0.5)*6;
+    var px=dpt.x+dn.x*off, py=dpt.y+dn.y*off;
+    var rr=1.2+Math.pow(seededRand(di*19+6),1.4)*2.3;
+    powderCircle(dotG,px,py,rr,powderFills[(seededRand(di*23+7)*powderFills.length)|0],di,true);
+    // 约一半位置再补一颗小粉粒贴在旁边，粉末成簇、没有均匀机描感
+    if(seededRand(di*29+8)>0.45){
+      var off2=off+(seededRand(di*31+9)-0.5)*7, along=(seededRand(di*37+10)-0.5)*5;
+      var pa=pointAt(ds+along);
+      powderCircle(dotG,pa.x+dn.x*off2,pa.y+dn.y*off2,0.7+seededRand(di*41+11)*1.1,powderFills[(seededRand(di*43+12)*powderFills.length)|0],di+5000,true);
+    }
+  }
+  svg.appendChild(dotG);
+  // 散落细粉：少量粉粒飘到轮廓内外 5-13px 处，稀疏而暗，是撒粉时自然飞溅的边缘
+  var strayG=document.createElementNS(svgNS,'g');
+  var strayN=110;
+  for(var si=0;si<strayN;si++){
+    var ss=P*seededRand(si*47+13), sp2=pointAt(ss), sn=curveNormal(ss);
+    var side=seededRand(si*53+14)>0.5?1:-1;
+    var soff=side*(5+seededRand(si*59+15)*8);
+    powderCircle(strayG,sp2.x+sn.x*soff,sp2.y+sn.y*soff,0.6+seededRand(si*61+16)*0.9,'rgba(255,214,120,.55)',si+9000,true);
+  }
+  svg.appendChild(strayG);
+  heartWall.appendChild(svg);
+  // 照片沿轮廓排布：照片宽约墙宽的 8.5-10%，按弧长均匀取点（不按参数 t 取点，参数取点会在凹口和尖端处挤成一团），
+  // 从顶部凹口处错开半格起排，让凹口和尖底都落在两张照片之间的空隙里、露出来；
+  // 再兜底校验：任意相邻两张的中心距不得小于最宽照片的 1.35 倍，留出明显空隙、绝不互相遮挡，不够就沿弧长把这对推开；
+  // 倾斜顺着该点轮廓切线方向轻轻靠，夹在 ±10° 内，不乱摆
+  var baseW = n<=4?10 : n<=6?9.5 : n<=8?9 : 8.5;
+  var widths=[], maxW=0;
+  for(var wi=0;wi<n;wi++){
+    widths.push(W*(baseW+(seededRand(wi*7+2)-0.5)*0.9)/100);
+    if(widths[wi]>maxW) maxW=widths[wi];
+  }
+  var minDist=maxW*1.35;
   var pos=[];
   for(var pi=0;pi<n;pi++) pos.push((pi+0.5)*P/n);
-  for(var it=0;it<80&&n>1;it++){
+  for(var it=0;it<140&&n>1;it++){
     var bad=false;
     for(var ci=0;ci<n;ci++){
       var cj=(ci+1)%n;
@@ -637,7 +692,7 @@ function buildHeart(){
     var pa=pointAt(pos[i]-6), pb=pointAt(pos[i]+6);
     var tang=Math.atan2(pb.y-pa.y,pb.x-pa.x)*180/Math.PI;
     if(tang>90) tang-=180; else if(tang<-90) tang+=180;
-    var rot=Math.max(-20,Math.min(20,tang*0.45));
+    var rot=Math.max(-10,Math.min(10,tang*0.35));
     var w=widths[i], h=w*1.3;
     var el=document.createElement('div');
     el.className='hp';
@@ -662,6 +717,7 @@ function buildHeart(){
       el.style.transform='rotate('+rot+'deg)';
     }
   }
+  spawnHeartSwirl();
 }
 function enterHeart(){
   if(!photos.length){
@@ -715,6 +771,115 @@ addEventListener('keydown',function(e){
   else if(e.code==='ArrowLeft'){ prevPhoto(); }
 });
 markModeButtons();
+</script>
+<script>
+// ================= 照片金粉环绕：出现 / 切换时金粉沿照片边缘旋绕 =================
+// 一圈金色粒子从照片边框爆开，顺时针绕着边框转圈（旋涡式），一边转一边向外扩散、
+// 带拖尾，持续约 1.5-2.1 秒，后半程缓缓下沉并渐弱。单张照片模式密而亮；
+// 爱心墙模式更淡更疏、节流触发，只作点缀，不抢爱心轮廓。
+var swirlCanvas=document.getElementById('goldSwirl');
+var swirlCtx=swirlCanvas.getContext('2d');
+var swirlParts=[], swirlRunning=false, swirlLastT=0, swirlLastHeart=0;
+var swirlReduced=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+function swirlResize(){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  swirlCanvas.width=Math.round(innerWidth*dpr);
+  swirlCanvas.height=Math.round(innerHeight*dpr);
+  swirlCtx.setTransform(dpr,0,0,dpr,0,0);
+}
+swirlResize();
+addEventListener('resize',swirlResize);
+var swirlSprite=document.createElement('canvas');
+swirlSprite.width=swirlSprite.height=64;
+(function(){
+  var x=swirlSprite.getContext('2d');
+  var g=x.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,'rgba(255,248,224,1)');
+  g.addColorStop(.22,'rgba(255,216,124,.95)');
+  g.addColorStop(.55,'rgba(246,182,80,.42)');
+  g.addColorStop(1,'rgba(246,182,80,0)');
+  x.fillStyle=g; x.fillRect(0,0,64,64);
+})();
+function spawnSwirl(cx,cy,hw,hh,count,strength){
+  if(swirlReduced||count<=0) return;
+  for(var i=0;i<count;i++){
+    swirlParts.push({
+      cx:cx, cy:cy, hw:hw, hh:hh,
+      theta:Math.random()*Math.PI*2,
+      omega:1.5+Math.random()*1.4, // 屏幕坐标 y 向下，角度增大即顺时针
+      k0:0.94+Math.random()*0.14,
+      k1:1.38+Math.random()*0.35,
+      age:-Math.random()*0.22, // 错峰爆开，不是齐刷刷一圈
+      life:1.45+Math.random()*0.65,
+      size:(2.6+Math.pow(Math.random(),1.6)*6.5)*strength,
+      alpha:(0.55+Math.random()*0.45)*Math.min(1,strength+0.25),
+      sink:0, hist:[]
+    });
+  }
+  if(swirlParts.length>900) swirlParts.splice(0,swirlParts.length-900);
+  if(!swirlRunning){ swirlRunning=true; swirlLastT=performance.now(); requestAnimationFrame(swirlTick); }
+}
+function swirlTick(now){
+  var dt=Math.min(0.05,((now-swirlLastT)/1000)||0.016); swirlLastT=now;
+  swirlCtx.clearRect(0,0,innerWidth,innerHeight);
+  swirlCtx.globalCompositeOperation='lighter';
+  var alive=[];
+  for(var i=0;i<swirlParts.length;i++){
+    var p=swirlParts[i];
+    p.age+=dt;
+    if(p.age<0){ alive.push(p); continue; }
+    var lt=p.age/p.life;
+    if(lt>=1) continue;
+    p.theta+=p.omega*dt*(1.12-0.3*lt); // 转速后段略缓
+    var e=1-Math.pow(1-Math.min(1,lt*1.5),3); // 向外扩散：先快后慢
+    var k=p.k0+(p.k1-p.k0)*e+lt*0.12;
+    if(lt>0.5) p.sink+=(lt-0.5)*46*dt; // 后半程缓缓下沉
+    var x=p.cx+Math.cos(p.theta)*p.hw*k;
+    var y=p.cy+Math.sin(p.theta)*p.hh*k+p.sink;
+    p.hist.unshift([x,y]);
+    if(p.hist.length>5) p.hist.pop();
+    var fadeIn=Math.min(1,lt/0.1);
+    var fadeOut=lt<0.55?1:1-(lt-0.55)/0.45;
+    var a=p.alpha*fadeIn*fadeOut;
+    for(var j=p.hist.length-1;j>=0;j--){ // 拖尾：沿轨迹回放旧位置，越旧越淡越大
+      var ha=a*(1-j*0.16)*(j===0?1:0.55);
+      if(ha<=0.01) continue;
+      var s=p.size*(1+j*0.22);
+      swirlCtx.globalAlpha=Math.min(1,ha);
+      swirlCtx.drawImage(swirlSprite,p.hist[j][0]-s/2,p.hist[j][1]-s/2,s,s);
+    }
+    alive.push(p);
+  }
+  swirlParts=alive;
+  swirlCtx.globalAlpha=1;
+  swirlCtx.globalCompositeOperation='source-over';
+  if(swirlParts.length){ requestAnimationFrame(swirlTick); }
+  else { swirlRunning=false; swirlCtx.clearRect(0,0,innerWidth,innerHeight); }
+}
+function spawnPhotoSwirl(){
+  function go(){
+    if(mode!=='photo') return;
+    var sr=photoStage.getBoundingClientRect();
+    var w=photoCard.offsetWidth, h=photoCard.offsetHeight;
+    if(!w||!h) return;
+    spawnSwirl(sr.left+sr.width/2, sr.top+h/2, w/2+7, h/2+7, 340, 1);
+  }
+  if(photoImg.complete&&photoImg.naturalWidth>0){ requestAnimationFrame(go); }
+  else { // 图片还没解码完，等它就绪（或最多 400ms）再绕，位置才对得准边框
+    var done=false;
+    var onReady=function(){ if(done) return; done=true; go(); };
+    photoImg.addEventListener('load',onReady,{once:true});
+    setTimeout(onReady,400);
+  }
+}
+function spawnHeartSwirl(){
+  var now=performance.now();
+  if(now-swirlLastHeart<1500) return; // 节流：窗口缩放等重复重建爱心时不连环触发
+  swirlLastHeart=now;
+  var r=heartWall.getBoundingClientRect();
+  if(!r.width) return;
+  spawnSwirl(r.left+r.width/2, r.top+r.height/2, r.width*0.485, r.height*0.485, 210, 0.55);
+}
 </script>
 <script>
 // ================= 手势识别：只按伸出手指数量切换 =================
